@@ -5,6 +5,7 @@ import com.comphenix.protocol.error.PluginContext;
 import com.comphenix.protocol.error.Report;
 import com.comphenix.protocol.error.ReportType;
 import com.comphenix.protocol.injector.BukkitUnwrapper;
+import com.comphenix.protocol.reflect.FuzzyReflection;
 import com.comphenix.protocol.reflect.accessors.Accessors;
 import com.comphenix.protocol.reflect.accessors.ConstructorAccessor;
 import com.comphenix.protocol.reflect.accessors.FieldAccessor;
@@ -30,7 +31,12 @@ public class WrappedGameProfile extends AbstractWrapper {
     public static final ReportType REPORT_INVALID_UUID = new ReportType("Plugin %s created a profile with '%s' as an UUID.");
 
     private static final Class<?> GAME_PROFILE = MinecraftReflection.getGameProfileClass();
+    private static final Class<?> PROPERTY_MAP = MinecraftReflection.getPropertyMapClass();
 
+    private static final ConstructorAccessor CREATE_PROPERTY_MAP = Accessors.getConstructorAccessorOrNull(
+            PROPERTY_MAP, Multimap.class);
+    private static final ConstructorAccessor CREATE_UUID_STRING_PROPERTY_MAP = Accessors.getConstructorAccessorOrNull(
+        GAME_PROFILE, UUID.class, String.class, PROPERTY_MAP);
     private static final ConstructorAccessor CREATE_STRING_STRING = Accessors.getConstructorAccessorOrNull(
             GAME_PROFILE, String.class, String.class);
     private static final ConstructorAccessor CREATE_UUID_STRING = Accessors.getConstructorAccessorOrNull(
@@ -39,12 +45,15 @@ public class WrappedGameProfile extends AbstractWrapper {
     private static final FieldAccessor GET_UUID_STRING = Accessors.getFieldAccessorOrNull(
             GAME_PROFILE, "id", String.class);
 
-    private static final MethodAccessor GET_ID = Accessors.getMethodAccessorOrNull(
-            GAME_PROFILE, "getId");
-    private static final MethodAccessor GET_NAME = Accessors.getMethodAccessorOrNull(
-            GAME_PROFILE, "getName");
-    private static final MethodAccessor GET_PROPERTIES = Accessors.getMethodAccessorOrNull(
-            GAME_PROFILE, "getProperties");
+    private static final MethodAccessor GET_ID = Accessors.getMethodAccessor(FuzzyReflection
+        .fromClass(GAME_PROFILE, true)
+        .getMethodByName("getId|id"));
+    private static final MethodAccessor GET_NAME = Accessors.getMethodAccessor(FuzzyReflection
+        .fromClass(GAME_PROFILE, true)
+        .getMethodByName("getName|name"));
+    private static final MethodAccessor GET_PROPERTIES = Accessors.getMethodAccessor(FuzzyReflection
+        .fromClass(GAME_PROFILE, true)
+        .getMethodByName("getProperties|properties"));
     private static final MethodAccessor IS_COMPLETE = Accessors.getMethodAccessorOrNull(
             GAME_PROFILE, "isComplete");
 
@@ -68,7 +77,7 @@ public class WrappedGameProfile extends AbstractWrapper {
      * Retrieve the associated game profile of a player.
      * <p>
      * Note that this may not exist in the current Minecraft version.
-     * 
+     *
      * @param player - the player.
      * @return The game profile.
      */
@@ -87,7 +96,7 @@ public class WrappedGameProfile extends AbstractWrapper {
      * Retrieve the associated game profile of an offline player.
      * <p>
      * Note that this may not exist in the current Minecraft version.
-     * 
+     *
      * @param player - the offline player.
      * @return The game profile.
      */
@@ -108,7 +117,7 @@ public class WrappedGameProfile extends AbstractWrapper {
      * IDs that cannot be parsed as an UUID will be hashed and form a version 3 UUID instead.
      * <p>
      * This method is deprecated for Minecraft 1.7.8 and above.
-     * 
+     *
      * @param id - the UUID of the player.
      * @param name - the name of the player.
      */
@@ -121,7 +130,7 @@ public class WrappedGameProfile extends AbstractWrapper {
      * Construct a new game profile with the given properties.
      * <p>
      * Note that at least one of the parameters must be non-null.
-     * 
+     *
      * @param uuid - the UUID of the player, or NULL.
      * @param name - the name of the player, or NULL.
      */
@@ -147,9 +156,38 @@ public class WrappedGameProfile extends AbstractWrapper {
         }
     }
 
+    public WrappedGameProfile(UUID uuid, String name, Multimap<String, WrappedSignedProperty> properties) {
+        super(GAME_PROFILE);
+
+        if (CREATE_UUID_STRING_PROPERTY_MAP != null && CREATE_PROPERTY_MAP != null) {
+            Object propertyMap = CREATE_PROPERTY_MAP.invoke(new ConvertedMultimap<>(properties) {
+              @Override
+              protected Object toOuter(WrappedSignedProperty wrappedSignedProperty) {
+                return wrappedSignedProperty.handle;
+              }
+
+              @Override
+              protected WrappedSignedProperty toInner(Object handle) {
+                return WrappedSignedProperty.fromHandle(handle);
+              }
+
+              @Override
+              protected Object toInnerObject(Object outer) {
+                if (outer instanceof WrappedSignedProperty wrapped) {
+                  return toOuter(wrapped);
+                }
+                return outer;
+              }
+            });
+            setHandle(CREATE_UUID_STRING_PROPERTY_MAP.invoke(uuid, name, propertyMap));
+        } else {
+            throw new IllegalArgumentException("Unsupported GameProfile constructor.");
+        }
+    }
+
     /**
      * Construct a wrapper around an existing game profile.
-     * 
+     *
      * @param handle - the underlying profile, or NULL.
      * @return A wrapper around an existing game profile.
      */
@@ -162,7 +200,7 @@ public class WrappedGameProfile extends AbstractWrapper {
 
     /**
      * Parse an UUID using very lax rules, as specified in {@link #WrappedGameProfile(UUID, String)}.
-     * 
+     *
      * @param id - text.
      * @return The corresponding UUID.
      * @throws IllegalArgumentException If we cannot parse the text.
@@ -188,7 +226,7 @@ public class WrappedGameProfile extends AbstractWrapper {
      * Note that Minecraft 1.7.5 and earlier doesn't use UUIDs internally, and it may not be possible to convert the string to an UUID.
      * <p>
      * We use the same lax conversion as in {@link #WrappedGameProfile(String, String)}.
-     * 
+     *
      * @return The UUID, or NULL if the UUID is NULL.
      * @throws IllegalStateException If we cannot parse the internal ID as an UUID.
      */
@@ -225,7 +263,7 @@ public class WrappedGameProfile extends AbstractWrapper {
      * Note that there's nothing stopping plugins from creating non-standard UUIDs.
      * <p>
      * In Minecraft 1.7.8 and later, this simply returns the string form of {@link #getUUID()}.
-     * 
+     *
      * @return The UUID of the player, or NULL if not computed.
      */
     public String getId() {
@@ -241,7 +279,7 @@ public class WrappedGameProfile extends AbstractWrapper {
 
     /**
      * Retrieve the name of the player.
-     * 
+     *
      * @return The player name.
      */
     public String getName() {
@@ -259,7 +297,7 @@ public class WrappedGameProfile extends AbstractWrapper {
 
     /**
      * Retrieve the property map of signed values.
-     * 
+     *
      * @return Property map.
      */
     // In the protocol hack and 1.8 it is a ForwardingMultimap
@@ -295,7 +333,7 @@ public class WrappedGameProfile extends AbstractWrapper {
 
     /**
      * Construct a new game profile with the same ID, but different name.
-     * 
+     *
      * @param name - the new name of the profile to create.
      * @return The new game profile.
      */
@@ -305,7 +343,7 @@ public class WrappedGameProfile extends AbstractWrapper {
 
     /**
      * Construct a new game profile with the same name, but different id.
-     * 
+     *
      * @param id - the new id of the profile to create.
      * @return The new game profile.
      */
@@ -315,10 +353,14 @@ public class WrappedGameProfile extends AbstractWrapper {
 
     /**
      * Determine if the game profile contains both an UUID and a name.
-     * 
+     *
      * @return TRUE if it does, FALSE otherwise.
      */
     public boolean isComplete() {
+        if (IS_COMPLETE == null) {
+            return this.getId() != null && this.getName() != null;
+        }
+
         return (Boolean) IS_COMPLETE.invoke(handle);
     }
 

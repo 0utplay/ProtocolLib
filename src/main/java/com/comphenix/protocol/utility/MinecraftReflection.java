@@ -554,6 +554,15 @@ public final class MinecraftReflection {
     }
 
     /**
+     *
+     *
+     * @return
+     */
+    public static Class<?> getPropertyMapClass() {
+        return getClass("com.mojang.authlib.properties.PropertyMap");
+    }
+
+    /**
      * Retrieve the entity (NMS) class.
      *
      * @return The entity class.
